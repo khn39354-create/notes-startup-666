@@ -15,6 +15,7 @@ import {
 } from "./types";
 import { deleteFile } from "../lib/files";
 import { genId, nowIso } from "../lib/id";
+import { contentToPlainText, isContentBlank } from "../lib/richtext";
 
 interface DBShape {
   notes: Note[];
@@ -73,6 +74,7 @@ export async function createNote(partial: Partial<Note> = {}): Promise<Note> {
     updatedAt: ts,
     deletedAt: null,
   };
+  note.plainText = contentToPlainText(note.content);
   db.notes.push(note);
   await save();
   return note;
@@ -84,7 +86,7 @@ export async function getNote(id: string): Promise<Note | null> {
 }
 
 const UPDATABLE = new Set([
-  "title", "content", "type", "color", "folderId",
+  "title", "content", "plainText", "type", "color", "folderId",
   "isPinned", "isFavorite", "isArchived", "isDeleted", "deletedAt",
 ]);
 
@@ -92,6 +94,9 @@ export async function updateNote(id: string, fields: Partial<Note>): Promise<voi
   const db = await load();
   const n = db.notes.find((x) => x.id === id);
   if (!n) return;
+  if (typeof fields.content === "string") {
+    fields = { ...fields, plainText: contentToPlainText(fields.content) };
+  }
   for (const k of Object.keys(fields)) {
     if (UPDATABLE.has(k)) (n as any)[k] = (fields as any)[k];
   }
@@ -182,7 +187,7 @@ export async function listNotes(params: ListParams): Promise<NoteListItem[]> {
     list = list.filter(
       (n) =>
         n.title.toLowerCase().includes(q) ||
-        n.content.toLowerCase().includes(q) ||
+        (n.plainText ?? contentToPlainText(n.content)).toLowerCase().includes(q) ||
         noteIdsByCheck.has(n.id) ||
         (n.folderId ? folderMatch.has(n.folderId) : false) ||
         noteIdsByLabel.has(n.id),
@@ -434,7 +439,7 @@ export async function discardIfEmpty(id: string): Promise<boolean> {
   const note = db.notes.find((n) => n.id === id);
   if (!note) return false;
   const hasTitle = note.title.trim().length > 0;
-  const hasContent = note.content.trim().length > 0;
+  const hasContent = !isContentBlank(note.content);
   const hasCheck = db.checklist.some((c) => c.noteId === id && c.text !== "");
   const hasAtt = db.attachments.some((a) => a.noteId === id);
   if (!hasTitle && !hasContent && !hasCheck && !hasAtt) {

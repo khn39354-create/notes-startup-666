@@ -1,5 +1,8 @@
 import * as SQLite from "expo-sqlite";
 
+import { contentToPlainText } from "../lib/richtext";
+import { logError } from "../lib/errors";
+
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 let initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -74,14 +77,45 @@ CREATE INDEX IF NOT EXISTS idx_notelabels_label ON note_labels(labelId);
 CREATE INDEX IF NOT EXISTS idx_notelabels_note ON note_labels(noteId);
 `;
 
+/**
+ * Additive, idempotent migrations. Existing rows are never deleted or reset:
+ *  v2 - notes.plainText (search/preview text derived from rich content).
+ */
+async function migrate(db: SQLite.SQLiteDatabase): Promise<void> {
+  const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(notes)`);
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has("plainText")) {
+    await db.execAsync(`ALTER TABLE notes ADD COLUMN plainText TEXT NOT NULL DEFAULT ''`);
+  }
+  // Backfill plainText for legacy rows (content unchanged; only the derived column is written).
+  try {
+    const rows = await db.getAllAsync<{ id: string; content: string }>(
+      `SELECT id, content FROM notes WHERE plainText = '' AND content != ''`,
+    );
+    for (const r of rows) {
+      const plain = contentToPlainText(r.content);
+      if (plain) await db.runAsync(`UPDATE notes SET plainText = ? WHERE id = ?`, [plain, r.id]);
+    }
+  } catch (e) {
+    logError("db.migrate.backfill", e);
+  }
+}
+
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (dbInstance) return dbInstance;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const db = await SQLite.openDatabaseAsync("notes_app.db");
-    await db.execAsync(SCHEMA);
-    dbInstance = db;
-    return db;
+    try {
+      const db = await SQLite.openDatabaseAsync("notes_app.db");
+      await db.execAsync(SCHEMA);
+      await migrate(db);
+      dbInstance = db;
+      return db;
+    } catch (e) {
+      initPromise = null; // allow a retry on the next call
+      logError("db.init", e);
+      throw e;
+    }
   })();
   return initPromise;
 }

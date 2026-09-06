@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { getDb } from "../db/database";
 import { copyIntoStore, writeCacheFile } from "./files";
 import { genId, nowIso } from "./id";
+import { contentToPlainText } from "./richtext";
 
 const BACKUP_FORMAT = "notes_backup";
 const BACKUP_VERSION = 1;
@@ -156,10 +157,10 @@ export async function restoreReplace(parsed: ParsedBackup): Promise<void> {
   }
   for (const n of d.notes) {
     await db.runAsync(
-      `INSERT INTO notes (id,title,content,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO notes (id,title,content,plainText,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        n.id, n.title ?? "", n.content ?? "", n.type ?? "text", n.color ?? "default",
+        n.id, n.title ?? "", n.content ?? "", contentToPlainText(n.content ?? ""), n.type ?? "text", n.color ?? "default",
         n.folderId ?? null, n.isPinned ?? 0, n.isFavorite ?? 0, n.isArchived ?? 0,
         n.isDeleted ?? 0, n.createdAt ?? nowIso(), n.updatedAt ?? nowIso(), n.deletedAt ?? null,
       ],
@@ -220,10 +221,10 @@ export async function restoreMerge(parsed: ParsedBackup): Promise<void> {
     const id = genId("note");
     noteMap.set(n.id, id);
     await db.runAsync(
-      `INSERT INTO notes (id,title,content,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO notes (id,title,content,plainText,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        id, n.title ?? "", n.content ?? "", n.type ?? "text", n.color ?? "default",
+        id, n.title ?? "", n.content ?? "", contentToPlainText(n.content ?? ""), n.type ?? "text", n.color ?? "default",
         n.folderId ? folderMap.get(n.folderId) ?? null : null,
         n.isPinned ?? 0, n.isFavorite ?? 0, n.isArchived ?? 0, n.isDeleted ?? 0,
         n.createdAt ?? nowIso(), n.updatedAt ?? nowIso(), n.deletedAt ?? null,

@@ -5,6 +5,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  /** Derived search/preview text (may be missing on legacy rows). */
+  plainText?: string;
   type: NoteType;
   color: string;
   folderId: string | null;

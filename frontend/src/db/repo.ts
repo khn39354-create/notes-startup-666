@@ -13,6 +13,7 @@ import {
 } from "./types";
 import { deleteFile } from "../lib/files";
 import { genId, nowIso } from "../lib/id";
+import { contentToPlainText, isContentBlank } from "../lib/richtext";
 
 // ---------- Notes ----------
 
@@ -34,13 +35,15 @@ export async function createNote(partial: Partial<Note> = {}): Promise<Note> {
     updatedAt: ts,
     deletedAt: null,
   };
+  note.plainText = contentToPlainText(note.content);
   await db.runAsync(
-    `INSERT INTO notes (id,title,content,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO notes (id,title,content,plainText,type,color,folderId,isPinned,isFavorite,isArchived,isDeleted,createdAt,updatedAt,deletedAt)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       note.id,
       note.title,
       note.content,
+      note.plainText,
       note.type,
       note.color,
       note.folderId,
@@ -67,6 +70,7 @@ export async function getNote(id: string): Promise<Note | null> {
 const UPDATABLE = new Set([
   "title",
   "content",
+  "plainText",
   "type",
   "color",
   "folderId",
@@ -82,6 +86,9 @@ export async function updateNote(
   fields: Partial<Note>,
 ): Promise<void> {
   const db = await getDb();
+  if (typeof fields.content === "string") {
+    fields = { ...fields, plainText: contentToPlainText(fields.content) };
+  }
   const keys = Object.keys(fields).filter((k) => UPDATABLE.has(k));
   if (keys.length === 0) return;
   const setClause = keys.map((k) => `${k} = ?`).join(", ");
@@ -197,7 +204,7 @@ export async function listNotes(params: ListParams): Promise<NoteListItem[]> {
     const like = `%${q}%`;
     where.push(`(
       n.title LIKE ? OR
-      n.content LIKE ? OR
+      n.plainText LIKE ? OR
       n.id IN (SELECT noteId FROM checklist_items WHERE text LIKE ?) OR
       n.folderId IN (SELECT id FROM folders WHERE name LIKE ?) OR
       n.id IN (SELECT nl.noteId FROM note_labels nl JOIN labels l ON nl.labelId = l.id WHERE l.name LIKE ?)
@@ -469,7 +476,7 @@ export async function discardIfEmpty(id: string): Promise<boolean> {
   const note = await getNote(id);
   if (!note) return false;
   const hasTitle = note.title.trim().length > 0;
-  const hasContent = note.content.trim().length > 0;
+  const hasContent = !isContentBlank(note.content);
   const cl = await db.getFirstAsync<{ c: number }>(
     `SELECT COUNT(*) AS c FROM checklist_items WHERE noteId = ? AND text != ''`,
     [id],
